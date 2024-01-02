@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -11,7 +12,9 @@ import (
 	"github.com/novitaekaari/restraurant-management/database"
 	"github.com/novitaekaari/restraurant-management/models"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var foodCollection *mongo.Collection = database.OpenCollection(database.Client, "food")
@@ -127,6 +130,8 @@ func round(num float64) int {
 }
 
 func toFixed(num float64, precision int) float64 {
+	output := mat.Pow(10, float64(precision))
+	return float64(round(num*output)) / output
 
 }
 
@@ -135,5 +140,61 @@ func UpdateFood() gin.HandlerFunc {
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 		var menu models.Menu
 		var menu models.Food
+
+		foodId := c.Param{"food_id"}
+
+		if err := c.BindJSON(&food); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"errorr": err.Error()})
+			return
+		}
+
+		var updateObj primitive.D
+
+		if food.Name != nil {
+			updateObj = append(updateObj, bson.E{"name", food.Name})
+		}
+
+		if food.Price != nil {
+			updateObj = append(updateObj, bson.E{"price", food.Price})
+		}
+
+		if food.Food_Image != nil {
+			updateObj = append(updateObj, bson.E{"food_image", food.Food_Image})
+		}
+
+		if food.Menu_id != nil {
+			err := menuCollection.FindOne(ctx, bson.M{"menu_id": food.Menu_id}).Decode(&menu)
+			defer cancel()
+			if err != nil {
+				msg := fmt.Sprintf("message: Menu was not found")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+				return
+			}
+			updateObj = append(updateObj, bson.E{})
+		}
+
+		if food.Updated_at, _= time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
+		updateObj = append(upupdateObj, bson.E{"update_at", food.Update_at})
+
+		upsert := true
+		filter := bson.M{"food_id": foodId}
+
+		opt := options.UpdateOptions{
+			Upsert: &upsert,
+		}
+
+		foodCollection.UpdateOne(
+			ctx, 
+			filter,
+			bson.D{
+				{"$set", updateObj}
+			},
+			&opt,
+		)
+		if err != nil {
+			msg := fmt.Sprint("foot item update failed")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+			return
+		}
 	}
 }
