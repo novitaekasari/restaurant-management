@@ -10,10 +10,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/novitaekaari/restraurant-management/database"
 	"github.com/novitaekaari/restraurant-management/models"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"gopkg.in/mgo.v2/bson"
 )
 
 var tabelCollection *mongo.Collection = database.OpenCollection(database.Client, "tabel")
@@ -64,6 +64,7 @@ func CreateTabel() gin.HandlerFunc {
 		if validationErr != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
 			return
+
 		}
 
 		tabel.Created_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
@@ -73,17 +74,20 @@ func CreateTabel() gin.HandlerFunc {
 		tabel.Tabel_id = tabel.ID.Hex()
 
 		result, insertErr := tabelCollection.InsertOne(ctx, tabel)
+
 		if insertErr != nil {
 			msg := fmt.Sprintf("Tabel item was not created")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 			return
 		}
+
 		defer cancel()
 
 		c.JSON(http.StatusOK, result)
 
 	}
 }
+
 func UpdateTabel() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
@@ -101,6 +105,7 @@ func UpdateTabel() gin.HandlerFunc {
 
 		if tabel.Number_of_guests != nil {
 			updateObj = append(updateObj, bson.E{"number_of_guests", tabel.Number_of_guests})
+			return
 		}
 
 		if tabel.Tabel_number != nil {
@@ -110,6 +115,7 @@ func UpdateTabel() gin.HandlerFunc {
 		tabel.Updated_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 
 		upsert := true
+
 		opt := options.UpdateOptions{
 			Upsert: &upsert,
 		}
@@ -126,12 +132,14 @@ func UpdateTabel() gin.HandlerFunc {
 		)
 
 		if err != nil {
-			msg := fmt.Sprintf("tabel item update failed")
+			msg := fmt.Sprintf("table item update failed")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
-			return
+
 		}
 
 		defer cancel()
 		c.JSON(http.StatusOK, result)
+
 	}
+
 }

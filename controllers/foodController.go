@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator"
 	"github.com/novitaekaari/restraurant-management/database"
 	"github.com/novitaekaari/restraurant-management/models"
 	"go.mongodb.org/mongo-driver/bson"
@@ -18,6 +20,7 @@ import (
 )
 
 var foodCollection *mongo.Collection = database.OpenCollection(database.Client, "food")
+var validate = validator.New()
 
 func GetFoods() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -36,27 +39,23 @@ func GetFoods() gin.HandlerFunc {
 		startIndex := (page - 1) * recordPerPage
 		startIndex, err = strconv.Atoi(c.Query("startIndex"))
 
-	matchStage :=
-		bson.D{{"$match", bson.D{{}}}}
-	groupStage :=
-		bson.D{{"$group", bson.D{{"_id", bson.D{{"_id", "null"}}}, {"total_count", bson.D{{"$sum, 1"}}},{"data", bson.D{{"$push", "$$ROOT"}}} }}}
+		matchStage :=
+			bson.D{{"$match", bson.D{{}}}}
+		groupStage :=
+			bson.D{{"$group", bson.D{{"_id", bson.D{{"_id", "null"}}}, {"total_count", bson.D{{"$sum", 1}}}, {"data", bson.D{{"$push", "$$ROOT"}}}}}}
 		projectStage := bson.D{
 			{
 				"$project", bson.D{
-					{"_id", e},
+					{"_id", 0},
 					{"total_count", 1},
 					{"food_items", bson.D{{"$slice", []interface{}{"$data", startIndex, recordPerPage}}}},
-				}
-			}
-		}
+				}}}
 
 		result, err := foodCollection.Aggregate(ctx, mongo.Pipeline{
-			matchStage, groupStage, projectStage
-		})
-
+			matchStage, groupStage, projectStage})
 		defer cancel()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error":"error occured while listing food items"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while listing food items"})
 		}
 		var allFoods []bson.M
 		if err = result.All(ctx, &allFoods); err != nil {
@@ -126,11 +125,11 @@ func CreateFood() gin.HandlerFunc {
 }
 
 func round(num float64) int {
-
+	return int(num + math.Copysign(0.5, num))
 }
 
 func toFixed(num float64, precision int) float64 {
-	output := mat.Pow(10, float64(precision))
+	output := math.Pow(10, float64(precision))
 	return float64(round(num*output)) / output
 
 }
@@ -139,9 +138,9 @@ func UpdateFood() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 		var menu models.Menu
-		var menu models.Food
+		var food models.Food
 
-		foodId := c.Param{"food_id"}
+		foodId := c.Param("food_id")
 
 		if err := c.BindJSON(&food); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"errorr": err.Error()})
@@ -170,11 +169,12 @@ func UpdateFood() gin.HandlerFunc {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 				return
 			}
-			updateObj = append(updateObj, bson.E{})
+			updateObj = append(updateObj, bson.E{"menu", food.Price})
 		}
 
-		if food.Updated_at, _= time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
-		updateObj = append(upupdateObj, bson.E{"update_at", food.Update_at})
+		food.Updated_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
+
+		updateObj = append(updateObj, bson.E{"updated_at", food.Updated_at})
 
 		upsert := true
 		filter := bson.M{"food_id": foodId}
@@ -183,11 +183,11 @@ func UpdateFood() gin.HandlerFunc {
 			Upsert: &upsert,
 		}
 
-		foodCollection.UpdateOne(
-			ctx, 
+		result, err := foodCollection.UpdateOne(
+			ctx,
 			filter,
 			bson.D{
-				{"$set", updateObj}
+				{"$set", updateObj},
 			},
 			&opt,
 		)
@@ -196,5 +196,6 @@ func UpdateFood() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 			return
 		}
+		c.JSON(http.StatusOK, result)
 	}
 }

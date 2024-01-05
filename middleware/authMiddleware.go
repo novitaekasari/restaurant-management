@@ -2,8 +2,9 @@ package middleware
 
 import (
 	"fmt"
-	helpers "github.com/novitaekaari/restraurant-management/helpers"
 	"net/http"
+
+	helper "github.com/novitaekaari/restraurant-management/helpers"
 
 	"github.com/gin-gonic/gin"
 )

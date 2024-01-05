@@ -9,9 +9,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/novitaekaari/restraurant-management/database"
 	"github.com/novitaekaari/restraurant-management/models"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"gopkg.in/mgo.v2/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var menuCollection *mongo.Collection = database.OpenCollection(database.Client, "menu")
@@ -77,15 +78,14 @@ func CreateMenu() gin.HandlerFunc {
 	}
 }
 
-
-func inTimeSpan(start, end, check time.Tine) bool {
-	return start.After(time.Now() && end.After(start))
+func inTimeSpan(start, end, check time.Time) bool {
+	return start.After(time.Now()) && end.After(start)
 }
 
 func UpdateMenu() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
-		var menu models.menu
+		var menu models.Menu
 
 		if err := c.BindJSON(&menu); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -107,34 +107,34 @@ func UpdateMenu() gin.HandlerFunc {
 			updateObj = append(updateObj, bson.E{"start_date", menu.Start_Date})
 			updateObj = append(updateObj, bson.E{"end_date", menu.End_Date})
 
-			if menu.Name !=  ""{
+			if menu.Name != "" {
 				updateObj = append(updateObj, bson.E{"name", menu.Name})
 			}
 
-			if menu.Category != ""{
+			if menu.Category != "" {
 				updateObj = append(updateObj, bson.E{"name", menu.Category})
 			}
-			
+
 			menu.Updated_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
-			updateObj = append(updateObj, bson.E{"update_at", menu.Updated_at})
+			updateObj = append(updateObj, bson.E{"updated_at", menu.Updated_at})
 
 			upsert := true
 
-			opt := oprions.UpdateOptions{
-				Upsert : &upsert,
+			opt := options.UpdateOptions{
+				Upsert: &upsert,
 			}
 
-			result, err := menu.Collection.UpdateOne{
+			result, err := menuCollection.UpdateOne(
 				ctx,
 				filter,
 				bson.D{
-					{"$set", updateObj}
+					{"$set", updateObj},
 				},
 				&opt,
-			}
+			)
 			if err != nil {
 				msg := "Menu update failed"
-				c.JSON{http.StatusInternalServerError, gin.H{"error": msg}}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 			}
 			defer cancel()
 			c.JSON(http.StatusOK, result)

@@ -9,10 +9,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/novitaekaari/restraurant-management/database"
 	"github.com/novitaekaari/restraurant-management/models"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"gopkg.in/mgo.v2/bson"
 )
 
 type OrderItemPack struct {
@@ -33,26 +33,27 @@ func GetOrderItems() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while listing ordered items"})
 			return
 		}
-		var allOrdersItems []bson.M
-		if err = result.All(ctx, &allOrdersItems); err != nil {
+		var allOrderItems []bson.M
+		if err = result.All(ctx, &allOrderItems); err != nil {
 			log.Fatal(err)
 			return
 		}
-		c.JSON(http.StatusOK, allOrdersItems)
+		c.JSON(http.StatusOK, allOrderItems)
 	}
 }
 func GetOrderItemsByOrder() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		orderId := c.Param("order_id")
 
-		allOrdersItems, err := ItemsByOrder(orderId)
+		allOrderItems, err := ItemsByOrder(orderId)
 
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while listing order items by order ID"})
 			return
 		}
-		c.JSON(http.StatusOK, allOrdersItems)
+		c.JSON(http.StatusOK, allOrderItems)
 	}
+
 }
 
 func ItemsByOrder(id string) (OrderItems []primitive.M, err error) {
@@ -62,30 +63,30 @@ func ItemsByOrder(id string) (OrderItems []primitive.M, err error) {
 	lookupStage := bson.D{{"$lookup", bson.D{{"from", "food"}, {"localField", "food_id"}, {"foreignField", "food_id"}, {"as", "food"}}}}
 	unwindStage := bson.D{{"$unwind", bson.D{{"path", "$food"}, {"preserveNullAndEmptyArrays", true}}}}
 
-	lookupOrderStage := bson.D{{"$lookup", bson.D{{"from", "order"}, {"localField", "order_id"}, {"foreignField", "order_id"}, {"as", "order"}}}}
-	unwindOrderStage := bson.D{{"$unwind", bson.D{{"path", "$order"}, {"preserveNullAndEmptyArrays", true}}}}
+	lookupOrderStage := bson.D{{"$lookup", bson.D{{"food", "order"}, {"localField", "order_id"}, {"foreignField", "order_id"}, {"as", "order"}}}}
+	unwindOrderStage := bson.D{{"$unwind", bson.D{{"path", "order"}, {"preserveNullAndEmptyArrays", true}}}}
 
-	lookupTabelStage := bson.D{{"$lookup", bson.D{{"from", "tabel"}, {"localField", "order.tabel_id"}, {"foreignField", "tabel_id"}, {"as", "tabel"}}}}
-	unwindTabelStage := bson.D{{"$unwind", bson.D{{"path", "$tabel"}, {"preserveNullAndEmptyArrays", true}}}}
+	lookupTabelStage := bson.D{{"$lookup", bson.D{{"from", "tabel"}, {"localFiled", "order.tabel_id"}, {"foreignField", "tabel_id"}, {"as", "tabel"}}}}
+	unwindTabelStage := bson.D{{"$unwind", bson.D{{"path", "tabel"}, {"preserveNullAndEmptyArrays", true}}}}
 
 	projectStage := bson.D{
 		{"$project", bson.D{
-			{"od", 0},
+			{"id", 0},
 			{"amount", "$food.price"},
 			{"total_count", 1},
-			{"food_name", "$food_name"},
+			{"food_name", "$food.name"},
 			{"food_image", "$food.food_image"},
-			{"tabel_number", "$tabel.tabel_id"},
+			{"tabel_number", "$tabel.tabel_number"},
+			{"tabel_id", "$tabel.tabel_id"},
 			{"order_id", "$order.order_id"},
 			{"price", "$food.price"},
 			{"quantity", 1},
 		}}}
 
-	groupStage := bson.D{{"$group", bson.D{{"_id", bson.D{{"order_id", "$order_id"}, {"tabel_id", "$tabel_id"}, {"tabel_number", "$tabel_number"}}}, {"payment_due", bson.D{{"$sum", "$amount"}}}, {"total_count", bson.D{{"$sum", 1}}}, {"order_items", bson.D{{"$push", "$$ROOT"}}}}}}
+	groupStage := bson.D{{"$group", bson.D{{"_id", bson.D{{"order_id", "$order_id"}, {"tabel", "$tabel_id"}, {"tabel_number", "$tabel_number"}}}, {"payment_due", bson.D{{"$sum", "$amount"}}}, {"total_count", bson.D{{"$sum", 1}}}, {"order_items", bson.D{{"$push", "$$ROOT"}}}}}}
 
 	projectStage2 := bson.D{
 		{"$project", bson.D{
-
 			{"id", 0},
 			{"payment_due", 1},
 			{"total_count", 1},
@@ -117,6 +118,7 @@ func ItemsByOrder(id string) (OrderItems []primitive.M, err error) {
 
 	return OrderItems, err
 }
+
 func GetOrderItem() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
@@ -151,17 +153,18 @@ func UpdateOrderItem() gin.HandlerFunc {
 		}
 
 		if orderItem.Quantity != nil {
-			updateObj = append(updateObj, bson.E{"quantity", *orderItem.Quantity})
+			updateObj = append(updateObj, bson.E{"quantity", *&orderItem.Quantity})
 		}
 
 		if orderItem.Food_id != nil {
-			updateObj = append(updateObj, bson.E{"food_id", *orderItem.Food_id})
+			updateObj = append(updateObj, bson.E{"food_id", *&orderItem.Food_id})
 		}
 
 		orderItem.Updated_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 		updateObj = append(updateObj, bson.E{"updated_at", orderItem.Updated_at})
 
 		upsert := true
+
 		opt := options.UpdateOptions{
 			Upsert: &upsert,
 		}
@@ -180,10 +183,9 @@ func UpdateOrderItem() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 			return
 		}
-
 		defer cancel()
-
 		c.JSON(http.StatusOK, result)
+
 	}
 }
 
@@ -212,8 +214,8 @@ func CreateOrderItem() gin.HandlerFunc {
 
 			if validationErr != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
-				return
 			}
+
 			orderItem.ID = primitive.NewObjectID()
 			orderItem.Created_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 			orderItem.Updated_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
@@ -228,8 +230,10 @@ func CreateOrderItem() gin.HandlerFunc {
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer cancel()
 
+		defer cancel()
 		c.JSON(http.StatusOK, insertedOrderItems)
+
 	}
+
 }
